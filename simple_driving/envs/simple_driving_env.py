@@ -8,6 +8,7 @@ from simple_driving.resources.plane import Plane
 from simple_driving.resources.goal import Goal
 import matplotlib.pyplot as plt
 import time
+import os
 
 RENDER_HEIGHT = 720
 RENDER_WIDTH = 960
@@ -23,8 +24,8 @@ class SimpleDrivingEnv(gym.Env):
                 low=np.array([-1, -.6], dtype=np.float32),
                 high=np.array([1, .6], dtype=np.float32))
         self.observation_space = gym.spaces.box.Box(
-            low=np.array([-40, -40], dtype=np.float32),
-            high=np.array([40, 40], dtype=np.float32))
+            low=np.array([-40, -40, -40, -40], dtype=np.float32),
+            high=np.array([40, 40, 40, 40], dtype=np.float32))
         self.np_random, _ = gym.utils.seeding.np_random()
 
         if renders:
@@ -40,6 +41,7 @@ class SimpleDrivingEnv(gym.Env):
         self.car = None
         self.goal_object = None
         self.goal = None
+        self.obstacle = None
         self.done = False
         self.prev_dist_to_goal = None
         self.rendered_img = None
@@ -84,9 +86,10 @@ class SimpleDrivingEnv(gym.Env):
             #print("reached goal")
             self.done = True
             self.reached_goal = True
+            reward += 50.0  # Add bonus reward for reaching the goal
 
         ob = car_ob
-        return ob, reward, self.done, dict()
+        return ob, reward, self.done, False, dict()
 
     def seed(self, seed=None):
         self.np_random, seed = gym.utils.seeding.np_random(seed)
@@ -112,6 +115,12 @@ class SimpleDrivingEnv(gym.Env):
 
         # Visual element of the goal
         self.goal_object = Goal(self._p, self.goal)
+        
+        # Add obstacles to the environment
+        self.obstacle = self._p.loadURDF(
+            fileName=os.path.join(os.path.dirname(__file__), "../resources/simplegoal.urdf"),
+            basePosition=[self.np_random.uniform(-5, 5), self.np_random.uniform(-5, 5), 0],
+            useFixedBase=True)
 
         # Get observation to return
         carpos = self.car.get_observation()
@@ -119,7 +128,7 @@ class SimpleDrivingEnv(gym.Env):
         self.prev_dist_to_goal = math.sqrt(((carpos[0] - self.goal[0]) ** 2 +
                                            (carpos[1] - self.goal[1]) ** 2))
         car_ob = self.getExtendedObservation()
-        return np.array(car_ob, dtype=np.float32)
+        return np.array(car_ob, dtype=np.float32), {}
 
     def render(self, mode='human'):
         if mode == "fp_camera":
@@ -182,8 +191,12 @@ class SimpleDrivingEnv(gym.Env):
         goalpos, goalorn = self._p.getBasePositionAndOrientation(self.goal_object.goal)
         invCarPos, invCarOrn = self._p.invertTransform(carpos, carorn)
         goalPosInCar, goalOrnInCar = self._p.multiplyTransforms(invCarPos, invCarOrn, goalpos, goalorn)
+        
+        # Add obstacle information
+        obstaclepos, obstacleorn = self._p.getBasePositionAndOrientation(self.obstacle)
+        obstaclePosInCar, obstacleOrnInCar = self._p.multiplyTransforms(invCarPos, invCarOrn, obstaclepos, obstacleorn)
 
-        observation = [goalPosInCar[0], goalPosInCar[1]]
+        observation = [goalPosInCar[0], goalPosInCar[1], obstaclePosInCar[0], obstaclePosInCar[1]]
         return observation
 
     def _termination(self):
